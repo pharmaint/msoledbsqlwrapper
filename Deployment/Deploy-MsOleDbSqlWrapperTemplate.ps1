@@ -40,11 +40,12 @@ function Invoke-WrapperConfiguration {
     
     # --- Script Variables ---
     $wrapperDllName = "msoledbsqlwrapper.dll" # The name of our compiled DLL
-    $targetDllName = "msoledbsql.dll" # The original MS DLL we are replacing
+    $targetDllName  = "msoledbsql.dll" # The original MS DLL we are replacing
+    $backupDllName  = "msoledbsql.original.dll" # The backup name for original MS DLL we are replacing
     
-    $sysWow64Path = Join-Path -Path $env:SystemRoot -ChildPath "SysWOW64"
+    $sysWow64Path  = Join-Path -Path $env:SystemRoot -ChildPath "SysWOW64"
     $targetDllPath = Join-Path -Path $sysWow64Path -ChildPath $targetDllName
-    $backupDllPath = Join-Path -Path $sysWow64Path -ChildPath "$($targetDllName).original"
+    $backupDllPath = Join-Path -Path $sysWow64Path -ChildPath $backupDllName
 
     $configRegistryPath = "HKLM:\SOFTWARE\msoledbsqlwrapper"
     $expectedHash = "PASTE_NEW_32_BIT_SHA256_HASH_HERE"
@@ -70,13 +71,14 @@ function Invoke-WrapperConfiguration {
             }
             Write-Verbose "--> File hash verified successfully."
 
-            # Step 3: Backup the original DLL
-            Write-Verbose "Step 3: Backing up original DLL..."
+            # Step 3: Rename the original DLL
+            Write-Verbose "Step 3: Renaming up original DLL..."
             if (-not (Test-Path -Path $targetDllPath)) {
                 throw "Original DLL not found at '$targetDllPath'. Cannot proceed."
             }
             if (Test-Path -Path $backupDllPath) {
-                Write-Warning "Backup file '$backupDllPath' already exists. Previous installation may be incomplete. Overwriting backup."
+                Write-Warning "Renamed file '$backupDllPath' already exists. Previous installation detected."
+                throw "First uninstall previous installation using: .\Deploy-MsOleDbSqlWrapper.ps1 -Uninstall"
             }
             Rename-Item -Path $targetDllPath -NewName "$($targetDllName).original" -Force
             Write-Verbose "--> Original file renamed to '$($targetDllName).original'."
@@ -90,36 +92,56 @@ function Invoke-WrapperConfiguration {
             Write-Verbose "Step 5: Set Configuration..."
             if (-not (Test-Path -Path $configRegistryPath)) {
                 New-Item -Path $configRegistryPath -Force | Out-Null
+                Write-Verbose "--> Created registry key [$configRegistryPath]."
             }
-            New-ItemProperty -Path $configRegistryPath -Name "Regex" -Value $Regex -PropertyType String -Force | Out-Null
-            Write-Verbose "--> Set 'Regex' value to '$Regex'."
+            New-ItemProperty -Path $configRegistryPath -Name "DbaseRegex"     -Value $DbaseRegex  -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "ServerRegex"    -Value $ServerRegex -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "LoggingEnabled" -Value 0 -PropertyType DWord -Force | Out-Null
+            Write-Verbose "--> Created registry key properties."
 
             Write-Verbose "Installation complete."
         }
         elseif ($Mode -eq 'Uninstall') {
             Write-Verbose "Starting uninstallation of file-based hijack..."
             
-            # Step 1: Remove our wrapper DLL
+            # Step 1: Verify registry information exists
+            Write-Verbose "Step 1: Verify registry information exists..."
+            if (-not (Test-Path -Path $configRegistryPath)) {
+                throw "Can not continue. Missing registry key [$configRegistryPath]."
+            } else {
+                Write-Verbose "--> found registry key [$configRegistryPath]."
+            }
+            $OriginalFileHash = Get-ItemPropertyValue -Path $configRegistryPath -Name 'OriginalFileHash'
+            if ([string]::IsNullOrEmpty($OriginalFileHash)) {
+                throw "Can not continue. Missing original file hash."
+            } else {
+                Write-Verbose "--> found original file hash: $OriginalFileHash"
+            }
+
+            # Step 2: Remove our wrapper DLL
+            Write-Verbose "Step 2: Remove our wrapper DLL..."
             if (Test-Path -Path $targetDllPath) {
-                # Verify it's our file before deleting
+                # Verify it's not the original dll file before deleting
                 $currentHash = (Get-FileHash -Path $targetDllPath -Algorithm SHA256).Hash
-                if ($currentHash -eq $expectedHash) {
+                if ($currentHash -ne $OriginalFileHash) {
                     Remove-Item -Path $targetDllPath -Force
                     Write-Verbose "--> Wrapper DLL removed."
                 } else {
-                    Write-Warning "The file at '$targetDllPath' does not match the expected wrapper hash. It will not be removed automatically."
+                    throw "Can not continue. The file at '$targetDllPath' is the original file."
                 }
             }
             
-            # Step 2: Restore the backup
+            # Step 3: Rename the DLL
+            Write-Verbose "Step 3: Rename the DLL..."
             if (Test-Path -Path $backupDllPath) {
                 Rename-Item -Path $backupDllPath -NewName $targetDllName -Force
-                Write-Verbose "--> Original DLL restored from backup."
+                Write-Verbose "--> Original DLL name restored."
             } else {
-                Write-Warning "Backup file '$backupDllPath' not found. Cannot restore original DLL."
+                throw "Original file '$backupDllPath' not found. Cannot rename original DLL."
             }
             
-            # Step 3: Remove configuration
+            # Step 4: Remove registry configuration
+            Write-Verbose "Step 4: Remove registry configuration..."
             if (Test-Path -Path $configRegistryPath) {
                 Remove-Item -Path $configRegistryPath -Recurse -Force
                 Write-Verbose "--> Configuration registry key removed."
@@ -131,8 +153,10 @@ function Invoke-WrapperConfiguration {
              if (-not (Test-Path -Path $configRegistryPath)) {
                 throw "Registry key not found. Please install the wrapper first."
             }
-            New-ItemProperty -Path $configRegistryPath -Name "Regex" -Value $Regex -PropertyType String -Force | Out-Null
-            Write-Verbose "--> Regex value updated successfully."
+            New-ItemProperty -Path $configRegistryPath -Name "DbaseRegex"     -Value $DbaseRegex  -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "ServerRegex"    -Value $ServerRegex -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "LoggingEnabled" -Value 0 -PropertyType DWord -Force | Out-Null
+            Write-Verbose "--> Registry key properties updated successfully."
         }
     }
     catch {
