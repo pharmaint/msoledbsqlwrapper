@@ -1,0 +1,10 @@
+; msoledbsqlwrapper.def : Declares the module parameters for the DLL.
+
+LIBRARY "msoledbsql"
+
+EXPORTS
+DllCanUnloadNow
+DllGetClassObject
+DllRegisterServer
+DllUnregisterServer
+OpenSqlFilestream = OpenSqlFilestream_Passthrough
