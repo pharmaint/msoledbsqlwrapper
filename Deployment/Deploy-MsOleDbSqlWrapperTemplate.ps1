@@ -75,13 +75,16 @@ function Invoke-WrapperConfiguration {
             Write-Verbose "Step 3: Renaming up original DLL..."
             if (-not (Test-Path -Path $targetDllPath)) {
                 throw "Original DLL not found at '$targetDllPath'. Cannot proceed."
+            } Else {
+                $OriginalFileHash = (Get-FileHash -Path $targetDllPath -Algorithm SHA256).Hash
+                Write-Verbose "--> Original file hash is '$OriginalFileHash'."
             }
             if (Test-Path -Path $backupDllPath) {
                 Write-Warning "Renamed file '$backupDllPath' already exists. Previous installation detected."
                 throw "First uninstall previous installation using: .\Deploy-MsOleDbSqlWrapper.ps1 -Uninstall"
             }
-            Rename-Item -Path $targetDllPath -NewName "$($targetDllName).original" -Force
-            Write-Verbose "--> Original file renamed to '$($targetDllName).original'."
+            Rename-Item -Path $targetDllPath -NewName "$backupDllPath" -Force
+            Write-Verbose "--> Original file renamed to '$backupDllPath'."
 
             # Step 4: Write our wrapper DLL as the original
             Write-Verbose "Step 4: Writing wrapper DLL to '$targetDllPath'..."
@@ -94,9 +97,10 @@ function Invoke-WrapperConfiguration {
                 New-Item -Path $configRegistryPath -Force | Out-Null
                 Write-Verbose "--> Created registry key [$configRegistryPath]."
             }
-            New-ItemProperty -Path $configRegistryPath -Name "DbaseRegex"     -Value $DbaseRegex  -PropertyType String -Force | Out-Null
-            New-ItemProperty -Path $configRegistryPath -Name "ServerRegex"    -Value $ServerRegex -PropertyType String -Force | Out-Null
-            New-ItemProperty -Path $configRegistryPath -Name "LoggingEnabled" -Value 0 -PropertyType DWord -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "OriginalFileHash" -Value $OriginalFileHash  -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "DbaseRegex"       -Value $DbaseRegex  -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "ServerRegex"      -Value $ServerRegex -PropertyType String -Force | Out-Null
+            New-ItemProperty -Path $configRegistryPath -Name "LoggingEnabled"   -Value 0 -PropertyType DWord -Force | Out-Null
             Write-Verbose "--> Created registry key properties."
 
             Write-Verbose "Installation complete."
